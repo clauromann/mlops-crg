@@ -1,0 +1,27 @@
+class ActivationPolicy:
+
+    function decide(policy_mode, accuracy_new, accuracy_prev, metrics_new, metrics_prev, params):
+
+        if accuracy_prev is None:
+            return True, "Primer modelo: no existe modelo anterior"
+
+        if policy_mode == "any_improvement":
+            if accuracy_new >= accuracy_prev:
+                return True, "Activado: mejora o igualdad en accuracy"
+            else:
+                return False, "Rechazado: empeora accuracy"
+
+        if policy_mode == "min_delta":
+            if accuracy_new >= accuracy_prev + params.min_delta:
+                return True, "Activado: mejora significativa"
+            else:
+                return False, "Rechazado: mejora insuficiente"
+
+        if policy_mode == "per_class_f1":
+            f1_new = metrics_new.f1_per_class[params.target_class]
+            f1_prev = metrics_prev.f1_per_class[params.target_class]
+
+            if f1_new > f1_prev:
+                return True, "Activado: mejora en F1 de clase objetivo"
+            else:
+                return False, "Rechazado: no mejora F1 de clase objetivo"

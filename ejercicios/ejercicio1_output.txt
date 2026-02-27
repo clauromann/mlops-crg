@@ -19,13 +19,13 @@
   PASO 0b – Info modelo base
 ────────────────────────────────────────────────────────────
   ✅  Versión activa : v1.0-base
-  ✅  Entrenado el   : 2026-02-26T18:58:57.437691Z
+  ✅  Entrenado el   : 2026-02-27T15:47:34.026236Z
   ✅  Accuracy       : 0.9667
   ✅  Nº muestras    : 120
   ✅  Algoritmo      : LogisticRegression
 
   ℹ️   Historial de versiones (1 entradas):
-    🟢 v1.0-base  |  acc=0.9667  |  2026-02-26T18:58:57  |  –
+    🟢 v1.0-base  |  acc=0.9667  |  2026-02-27T15:47:34  |  –
 
 ────────────────────────────────────────────────────────────
   PASO 1 – Predicción con el modelo base
@@ -36,7 +36,7 @@
   PASO 2 – Reentrenamiento con muestras CORRECTAS
 ────────────────────────────────────────────────────────────
   ℹ️   Enviando 20 muestras bien etiquetadas...
-  ✅  Nuevo modelo ACTIVADO → versión: v2.0-118928
+  ✅  Nuevo modelo ACTIVADO → versión: v2.0-66e407
   ✅  Accuracy nuevo: 1.0000  |  Anterior: 0.9667
   ℹ️   Nuevo modelo activado. Accuracy 1.0000 >= anterior (0.9667)
 
@@ -50,21 +50,21 @@
 ────────────────────────────────────────────────────────────
   PASO 4 – Predicción con el modelo actualizado
 ────────────────────────────────────────────────────────────
-  ✅  Predicción: clase 0 (setosa), versión modelo: v3.0-8f5e76
+  ✅  Predicción: clase 0 (setosa), versión modelo: v3.0-b74897
 
 ────────────────────────────────────────────────────────────
   RESUMEN FINAL – Historial de versiones
 ────────────────────────────────────────────────────────────
-  ✅  Versión activa : v2.0-118928
-  ✅  Entrenado el   : 2026-02-26T18:58:58.203268Z
+  ✅  Versión activa : v2.0-66e407
+  ✅  Entrenado el   : 2026-02-27T15:47:34.765186Z
   ✅  Accuracy       : 1.0000
   ✅  Nº muestras    : 20
   ✅  Algoritmo      : LogisticRegression
 
   ℹ️   Historial de versiones (3 entradas):
-    🟢 v1.0-base  |  acc=0.9667  |  2026-02-26T18:58:57  |  –
-    🟢 v2.0-118928  |  acc=1.0000  |  2026-02-26T18:58:58  |  activado
-    🔴 v3.0-8f5e76  |  acc=0.6000  |  2026-02-26T18:58:58  |  rechazado
+    🟢 v1.0-base  |  acc=0.9667  |  2026-02-27T15:47:34  |  –
+    🟢 v2.0-66e407  |  acc=1.0000  |  2026-02-27T15:47:34  |  activado
+    🔴 v3.0-b74897  |  acc=0.6000  |  2026-02-27T15:47:35  |  rechazado
 
 ────────────────────────────────────────────────────────────
   ✅  Demo completado. Abre http://localhost:8000/docs para explorar la API.

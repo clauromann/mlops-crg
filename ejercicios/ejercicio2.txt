@@ -10,13 +10,12 @@ Se han registrado 3 versiones:
     Es el modelo inicial entrenado con el dataset completo Iris.
     No aparece como activado/rechazado porque es el punto de partida.
 
-    2.2. Modelo activado: v2.0-118928
+    2.2. Modelo activado: v2.0-66e407
     Accuracy: 1.0
     Status: "activado"
     "activated": true
 
-    2.3. Modelo rechazado
-    v3.0-8f5e76
+    2.3. Modelo rechazado: v3.0-b74897
     Accuracy: 0.6
     Status: "rechazado"
     "activated": false

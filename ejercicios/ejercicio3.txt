@@ -1,11 +1,5 @@
-Primer entrenamiento:
-    {
-    "status": "activado",
-    "model_version": "v2.0-62091c",
-    "accuracy_new": 1,
-    "accuracy_previous": 0.9667,
-    "model_updated": true,
-    "message": "Nuevo modelo activado. Accuracy 1.0000 >= anterior (0.9667)"
-    }
-
-Segundo entrenamiento:
+Hice dos llamadas a /train con las mismas 10 muestras: una con retrain_from_scratch=false y otra con true. 
+En mi caso la API devolvió accuracy_new=1.0 en ambas. 
+Esto ocurre porque, según el código, cuando el dataset de entrenamiento es pequeño (<20), el sistema evalúa el modelo sobre el propio conjunto de entrenamiento (“evaluación en train”), 
+lo que tiende a inflar la métrica y puede dar 1.0 incluso si el modelo no generaliza mejor. 
+Por eso no se observan diferencias claras en esta métrica con solo 10 muestras, aunque conceptualmente sí existe diferencia: incremental acumula datos y desde cero entrena solo con lo enviado.

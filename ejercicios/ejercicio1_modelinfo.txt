@@ -1,21 +1,21 @@
 {
-  "active_version": "v2.0-118928",
-  "trained_at": "2026-02-26T18:58:58.203268Z",
+  "active_version": "v2.0-66e407",
+  "trained_at": "2026-02-27T15:47:34.765186Z",
   "accuracy": 1,
   "n_training_samples": 20,
   "algorithm": "LogisticRegression",
   "history": [
     {
       "version": "v1.0-base",
-      "trained_at": "2026-02-26T18:58:57.437691Z",
+      "trained_at": "2026-02-27T15:47:34.026236Z",
       "accuracy": 0.9667,
       "n_training_samples": 120,
       "algorithm": "LogisticRegression",
       "source": "bootstrap (iris dataset completo)"
     },
     {
-      "version": "v2.0-118928",
-      "trained_at": "2026-02-26T18:58:58.203268Z",
+      "version": "v2.0-66e407",
+      "trained_at": "2026-02-27T15:47:34.765186Z",
       "accuracy": 1,
       "n_training_samples": 20,
       "algorithm": "LogisticRegression",
@@ -25,8 +25,8 @@
       "activated": true
     },
     {
-      "version": "v3.0-8f5e76",
-      "trained_at": "2026-02-26T18:58:58.460670Z",
+      "version": "v3.0-b74897",
+      "trained_at": "2026-02-27T15:47:35.154026Z",
       "accuracy": 0.6,
       "n_training_samples": 10,
       "algorithm": "LogisticRegression",

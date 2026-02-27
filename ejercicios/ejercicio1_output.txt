@@ -1,0 +1,70 @@
+(.venv) clauromann@DESKTOP-51R9VMM:~/mlops-crg$ python demo_ct.py --reset
+
+════════════════════════════════════════════════════════════
+  🌸  DEMO: Iris Continuous Training API
+════════════════════════════════════════════════════════════
+  Host: http://localhost:8000
+
+────────────────────────────────────────────────────────────
+  RESET – Restaurando modelo base
+────────────────────────────────────────────────────────────
+  ✅  Historial eliminado. Modelo base restaurado.
+
+────────────────────────────────────────────────────────────
+  PASO 0 – Health check
+────────────────────────────────────────────────────────────
+  ✅  Servicio activo. Modelo activo: v1.0-base
+
+────────────────────────────────────────────────────────────
+  PASO 0b – Info modelo base
+────────────────────────────────────────────────────────────
+  ✅  Versión activa : v1.0-base
+  ✅  Entrenado el   : 2026-02-26T18:58:57.437691Z
+  ✅  Accuracy       : 0.9667
+  ✅  Nº muestras    : 120
+  ✅  Algoritmo      : LogisticRegression
+
+  ℹ️   Historial de versiones (1 entradas):
+    🟢 v1.0-base  |  acc=0.9667  |  2026-02-26T18:58:57  |  –
+
+────────────────────────────────────────────────────────────
+  PASO 1 – Predicción con el modelo base
+────────────────────────────────────────────────────────────
+  ✅  Predicción: clase 0 (setosa), versión modelo: v1.0-base
+
+────────────────────────────────────────────────────────────
+  PASO 2 – Reentrenamiento con muestras CORRECTAS
+────────────────────────────────────────────────────────────
+  ℹ️   Enviando 20 muestras bien etiquetadas...
+  ✅  Nuevo modelo ACTIVADO → versión: v2.0-118928
+  ✅  Accuracy nuevo: 1.0000  |  Anterior: 0.9667
+  ℹ️   Nuevo modelo activado. Accuracy 1.0000 >= anterior (0.9667)
+
+────────────────────────────────────────────────────────────
+  PASO 3 – Reentrenamiento con muestras RUIDOSAS (etiquetas incorrectas)
+────────────────────────────────────────────────────────────
+  ℹ️   Enviando 10 muestras con etiquetas erróneas...
+  ✅  Modelo RECHAZADO como esperado. Accuracy 0.6000 < anterior 1.0000
+  ℹ️   Modelo NO activado. Accuracy 0.6000 < anterior (1.0000). El modelo activo se mantiene sin cambios.
+
+────────────────────────────────────────────────────────────
+  PASO 4 – Predicción con el modelo actualizado
+────────────────────────────────────────────────────────────
+  ✅  Predicción: clase 0 (setosa), versión modelo: v3.0-8f5e76
+
+────────────────────────────────────────────────────────────
+  RESUMEN FINAL – Historial de versiones
+────────────────────────────────────────────────────────────
+  ✅  Versión activa : v2.0-118928
+  ✅  Entrenado el   : 2026-02-26T18:58:58.203268Z
+  ✅  Accuracy       : 1.0000
+  ✅  Nº muestras    : 20
+  ✅  Algoritmo      : LogisticRegression
+
+  ℹ️   Historial de versiones (3 entradas):
+    🟢 v1.0-base  |  acc=0.9667  |  2026-02-26T18:58:57  |  –
+    🟢 v2.0-118928  |  acc=1.0000  |  2026-02-26T18:58:58  |  activado
+    🔴 v3.0-8f5e76  |  acc=0.6000  |  2026-02-26T18:58:58  |  rechazado
+
+────────────────────────────────────────────────────────────
+  ✅  Demo completado. Abre http://localhost:8000/docs para explorar la API.

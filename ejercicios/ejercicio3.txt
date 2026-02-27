@@ -1,0 +1,11 @@
+Primer entrenamiento:
+    {
+    "status": "activado",
+    "model_version": "v2.0-62091c",
+    "accuracy_new": 1,
+    "accuracy_previous": 0.9667,
+    "model_updated": true,
+    "message": "Nuevo modelo activado. Accuracy 1.0000 >= anterior (0.9667)"
+    }
+
+Segundo entrenamiento:

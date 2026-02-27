@@ -1,0 +1,30 @@
+1) ¿Cuántas versiones se han registrado?
+Se han registrado 3 versiones:
+- v1.0-base
+- v2.0-118928
+- v3.0-8f5e76
+
+2️) ¿Qué versiones fueron activadas y cuáles rechazadas?
+
+    2.1. Modelo base: v1.0-base
+    Es el modelo inicial entrenado con el dataset completo Iris.
+    No aparece como activado/rechazado porque es el punto de partida.
+
+    2.2. Modelo activado: v2.0-118928
+    Accuracy: 1.0
+    Status: "activado"
+    "activated": true
+
+    2.3. Modelo rechazado
+    v3.0-8f5e76
+    Accuracy: 0.6
+    Status: "rechazado"
+    "activated": false
+
+3️) ¿Por qué el modelo entrenado con muestras ruidosas fue rechazado?
+
+El modelo v3.0-8f5e76 fue rechazado porque obtuvo una accuracy de 0.6, que es inferior a la del modelo activo anterior (v2.0-118928 con accuracy 1.0).
+
+El sistema aplica un mecanismo de gating por métrica, que solo activa un nuevo modelo si su rendimiento es igual o superior al modelo actualmente activo.
+
+Como 0.6 < 1.0, el modelo fue correctamente marcado como "rechazado" y no sustituyó al modelo activo.

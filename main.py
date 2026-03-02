@@ -6,15 +6,20 @@ Extends app-iris with:
   - GET  /model/info → versión activa, métricas, historial
   - POST /predict    → inferencia (igual que app-iris, con versión activa)
   - GET  /health     → estado del servicio
+
+EXTENSIÓN (Ejercicio de programación):
+  - /train acepta un campo policy con 3 modos:
+      * any_improvement (>= actual)
+      * min_delta (mejora mínima configurable, ej. 2%)
+      * per_class_f1 (activar solo si mejora el F1 de una clase específica)
+  - El historial registra la policy usada y el motivo de activación/rechazo.
 """
 
 import json
-import os
-import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple, Literal
 
 import joblib
 import numpy as np
@@ -22,7 +27,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from sklearn.datasets import load_iris
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, f1_score
 from sklearn.model_selection import train_test_split
 
 # ---------------------------------------------------------------------------
@@ -34,6 +39,17 @@ MODELS_DIR.mkdir(exist_ok=True)
 
 MODEL_PATH = MODELS_DIR / "model_active.joblib"
 HISTORY_PATH = MODELS_DIR / "training_history.json"
+DATA_PATH = MODELS_DIR / "accumulated_data.joblib"
+
+# ---------------------------------------------------------------------------
+# App FastAPI
+# ---------------------------------------------------------------------------
+app = FastAPI(
+    title="Iris Continuous Training API",
+    version="1.0.0",
+    description="Extensión MLOps de app-iris. Sirve predicciones y permite reentrenar "
+                "el modelo con nuevas muestras etiquetadas, registrando el historial de versiones."
+)
 
 # ---------------------------------------------------------------------------
 # Esquemas Pydantic
@@ -55,6 +71,9 @@ class LabeledSample(BaseModel):
                        description="0=setosa, 1=versicolor, 2=virginica")
 
 
+PolicyMode = Literal["any_improvement", "min_delta", "per_class_f1"]
+
+
 class TrainRequest(BaseModel):
     samples: List[LabeledSample] = Field(
         ..., min_items=5,
@@ -63,6 +82,26 @@ class TrainRequest(BaseModel):
     retrain_from_scratch: bool = Field(
         False,
         description="Si True, ignora datos anteriores y entrena solo con las muestras enviadas"
+    )
+
+    # NUEVO: política de activación
+    policy: PolicyMode = Field(
+        "any_improvement",
+        description="Política de activación del nuevo modelo: "
+                    "any_improvement | min_delta | per_class_f1"
+    )
+
+    # NUEVO: parámetros (solo aplican a ciertas policies)
+    min_delta: Optional[float] = Field(
+        None,
+        description="Solo para policy='min_delta'. Mejora mínima exigida (ej 0.02 = 2%)",
+        example=0.02
+    )
+    target_class: Optional[int] = Field(
+        None,
+        description="Solo para policy='per_class_f1'. Clase objetivo (0,1,2) cuyo F1 debe mejorar",
+        example=1,
+        ge=0, le=2
     )
 
 
@@ -91,10 +130,10 @@ class ModelInfo(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Utilidades de persistencia
+# Utilidades de persistencia / constantes
 # ---------------------------------------------------------------------------
-
 CLASS_NAMES = {0: "setosa", 1: "versicolor", 2: "virginica"}
+ALL_LABELS = [0, 1, 2]
 
 
 def load_history() -> List[dict]:
@@ -115,20 +154,75 @@ def get_active_model_meta() -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
+# ActivationPolicy (NUEVO)
+# ---------------------------------------------------------------------------
+class ActivationPolicy:
+    """
+    Decide si se activa el nuevo modelo según una policy configurable.
+    Devuelve: (activate: bool, reason: str)
+    """
+
+    @staticmethod
+    def decide(
+        policy: PolicyMode,
+        accuracy_new: float,
+        accuracy_prev: Optional[float],
+        f1_new: Dict[int, float],
+        f1_prev: Dict[int, float],
+        min_delta: Optional[float] = None,
+        target_class: Optional[int] = None
+    ) -> Tuple[bool, str]:
+
+        # Caso inicial: si no hay modelo anterior, activamos siempre
+        if accuracy_prev is None:
+            return True, "Primer modelo: no existe modelo anterior."
+
+        if policy == "any_improvement":
+            if accuracy_new >= accuracy_prev:
+                return True, f"Activado (any_improvement): {accuracy_new:.4f} >= {accuracy_prev:.4f}"
+            return False, f"Rechazado (any_improvement): {accuracy_new:.4f} < {accuracy_prev:.4f}"
+
+        if policy == "min_delta":
+            # Si no viene, usamos 2% por defecto (ejemplo del enunciado)
+            delta = 0.02 if min_delta is None else float(min_delta)
+            if accuracy_new >= (accuracy_prev + delta):
+                return True, f"Activado (min_delta): {accuracy_new:.4f} >= {accuracy_prev:.4f} + {delta:.4f}"
+            return False, f"Rechazado (min_delta): {accuracy_new:.4f} < {accuracy_prev:.4f} + {delta:.4f}"
+
+        if policy == "per_class_f1":
+            if target_class is None:
+                return False, "Rechazado (per_class_f1): falta target_class."
+            tc = int(target_class)
+            new_tc = f1_new.get(tc, 0.0)
+            prev_tc = f1_prev.get(tc, 0.0)
+            if new_tc > prev_tc:
+                return True, f"Activado (per_class_f1): F1 clase {tc} mejora {prev_tc:.4f} → {new_tc:.4f}"
+            return False, f"Rechazado (per_class_f1): F1 clase {tc} no mejora ({prev_tc:.4f} → {new_tc:.4f})"
+
+        return False, "Rechazado: policy desconocida."
+
+
+# ---------------------------------------------------------------------------
 # Bootstrap: si no existe modelo, lo entrenamos con el dataset original
 # ---------------------------------------------------------------------------
-
 def bootstrap_model():
     """Entrena un modelo base con el dataset Iris completo al arrancar."""
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
     iris = load_iris()
     X, y = iris.data, iris.target
+
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
     )
+
     clf = LogisticRegression(max_iter=200, random_state=42)
     clf.fit(X_train, y_train)
-    accuracy = float(accuracy_score(y_test, clf.predict(X_test)))
+
+    y_pred = clf.predict(X_test)
+    accuracy = float(accuracy_score(y_test, y_pred))
+    f1_arr = f1_score(y_test, y_pred, labels=ALL_LABELS, average=None, zero_division=0)
+    f1_per_class = {int(lbl): float(f1_arr[i]) for i, lbl in enumerate(ALL_LABELS)}
 
     version = "v1.0-base"
     joblib.dump(clf, MODEL_PATH)
@@ -137,26 +231,19 @@ def bootstrap_model():
         "version": version,
         "trained_at": datetime.utcnow().isoformat() + "Z",
         "accuracy": round(accuracy, 4),
+        "f1_per_class": {str(k): round(v, 4) for k, v in f1_per_class.items()},
         "n_training_samples": len(X_train),
         "algorithm": "LogisticRegression",
-        "source": "bootstrap (iris dataset completo)"
+        "source": "bootstrap (iris dataset completo)",
+        "activated": True,
+        "status": "activado",
+        "policy": "any_improvement",
+        "policy_params": {},
+        "decision_reason": "Bootstrap inicial"
     }]
+
     save_history(history)
     print(f"[bootstrap] Modelo base creado → versión={version}, accuracy={accuracy:.4f}")
-
-
-# ---------------------------------------------------------------------------
-# App FastAPI
-# ---------------------------------------------------------------------------
-
-app = FastAPI(
-    title="Iris Continuous Training API",
-    description=(
-        "Extensión MLOps de app-iris. Sirve predicciones y permite reentrenar "
-        "el modelo con nuevas muestras etiquetadas, registrando el historial de versiones."
-    ),
-    version="1.0.0",
-)
 
 
 @app.on_event("startup")
@@ -166,8 +253,8 @@ def startup_event():
     else:
         meta = get_active_model_meta()
         if meta:
-            print(f"[startup] Modelo activo cargado → versión={meta['version']}, "
-                  f"accuracy={meta['accuracy']}")
+            print(f"[startup] Modelo activo cargado → versión={meta.get('version','unknown')}, "
+                  f"accuracy={meta.get('accuracy','?')}")
 
 
 # ---------------------------------------------------------------------------
@@ -186,20 +273,18 @@ def health():
 
 @app.post("/predict", response_model=PredictResponse, tags=["Inferencia"])
 def predict(sample: IrisSample):
-    """
-    Realiza una predicción con el modelo activo.
-    Devuelve la clase predicha, su nombre y la versión del modelo usado.
-    """
     if not MODEL_PATH.exists():
         raise HTTPException(status_code=503, detail="Modelo no disponible. Llama primero a /train.")
 
     clf = joblib.load(MODEL_PATH)
+
     X = np.array([[
         sample.sepal_length,
         sample.sepal_width,
         sample.petal_length,
         sample.petal_width
     ]])
+
     pred = int(clf.predict(X)[0])
     meta = get_active_model_meta()
 
@@ -215,27 +300,31 @@ def train(request: TrainRequest):
     """
     Reentrena el modelo con las nuevas muestras enviadas.
 
-    - Si `retrain_from_scratch=False` (por defecto), las nuevas muestras se añaden
-      al dataset de entrenamiento anterior (si existe) y se reentrena sobre el total.
-    - Si `retrain_from_scratch=True`, solo se usan las muestras enviadas.
-    - El nuevo modelo **reemplaza al activo solo si su accuracy ≥ accuracy anterior**.
-    - Cada entrenamiento queda registrado en el historial aunque no se active.
+    - retrain_from_scratch=False: acumula muestras y reentrena sobre el total.
+    - retrain_from_scratch=True: entrena solo con las muestras enviadas.
+    - NUEVO: policy configurable para activar / rechazar.
+    - Siempre registra el intento en el historial (activado o rechazado).
     """
 
-    # 1. Preparar nuevas muestras
+    # 1) Preparar nuevas muestras
     new_X = np.array([[s.sepal_length, s.sepal_width, s.petal_length, s.petal_width]
-                       for s in request.samples])
+                      for s in request.samples])
     new_y = np.array([s.label for s in request.samples])
 
-    # 2. Recuperar accuracy del modelo activo
+    # 2) Recuperar info del modelo activo actual
     history = load_history()
     previous_accuracy = history[-1]["accuracy"] if history else None
 
-    # 3. Construir dataset de entrenamiento
-    data_file = MODELS_DIR / "accumulated_data.joblib"
+    # F1 del modelo anterior (si no existe en history, ponemos 0.0)
+    previous_f1 = {0: 0.0, 1: 0.0, 2: 0.0}
+    if history and "f1_per_class" in history[-1]:
+        prev_dict = history[-1]["f1_per_class"]
+        # puede venir como strings si ya estaba guardado así
+        previous_f1 = {int(k): float(v) for k, v in prev_dict.items()}
 
-    if not request.retrain_from_scratch and data_file.exists():
-        saved = joblib.load(data_file)
+    # 3) Construir dataset de entrenamiento
+    if (not request.retrain_from_scratch) and DATA_PATH.exists():
+        saved = joblib.load(DATA_PATH)
         X_train = np.vstack([saved["X"], new_X])
         y_train = np.concatenate([saved["y"], new_y])
         source = f"incremental (+{len(new_X)} muestras nuevas, {len(saved['X'])} anteriores)"
@@ -243,94 +332,114 @@ def train(request: TrainRequest):
         X_train, y_train = new_X, new_y
         source = f"desde cero ({len(new_X)} muestras)"
 
-    # 4. Necesitamos al menos 2 clases para entrenar
+    # 4) Reglas mínimas del LAB
     if len(np.unique(y_train)) < 2:
         raise HTTPException(
             status_code=422,
             detail="El dataset de entrenamiento debe contener al menos 2 clases distintas."
         )
 
-    # 5. Entrenar nuevo modelo
-    clf_new = LogisticRegression(max_iter=300, random_state=42)
+    # 5) Entrenar el modelo
+    clf = LogisticRegression(max_iter=200, random_state=42)
+    clf.fit(X_train, y_train)
 
-    # Evaluación: si hay suficientes datos, usamos split; si no, evaluamos en train
-    if len(X_train) >= 20:
-        X_tr, X_val, y_tr, y_val = train_test_split(
-            X_train, y_train, test_size=0.2, random_state=42
-        )
-        clf_new.fit(X_tr, y_tr)
-        accuracy_new = float(accuracy_score(y_val, clf_new.predict(X_val)))
-        eval_note = f"validación con {len(X_val)} muestras"
-    else:
-        clf_new.fit(X_train, y_train)
-        accuracy_new = float(accuracy_score(y_train, clf_new.predict(X_train)))
+    # 6) Evaluación
+    #    (mantenemos la lógica del LAB: con <20 evaluamos en train)
+    if len(y_train) < 20:
+        y_eval = y_train
+        X_eval = X_train
         eval_note = "evaluación en train (dataset pequeño, < 20 muestras)"
-
-    accuracy_new = round(accuracy_new, 4)
-
-    # 6. Decidir si activar el nuevo modelo
-    model_updated = (previous_accuracy is None) or (accuracy_new >= previous_accuracy)
-
-    version = f"v{len(history) + 1}.0-{uuid.uuid4().hex[:6]}"
-    status = "activado" if model_updated else "rechazado"
-
-    if model_updated:
-        joblib.dump(clf_new, MODEL_PATH)
-        joblib.dump({"X": X_train, "y": y_train}, data_file)
-        message = (
-            f"Nuevo modelo activado. Accuracy {accuracy_new:.4f} "
-            f"{'(primer modelo)' if previous_accuracy is None else f'>= anterior ({previous_accuracy:.4f})'}"
-        )
     else:
-        message = (
-            f"Modelo NO activado. Accuracy {accuracy_new:.4f} < anterior ({previous_accuracy:.4f}). "
-            "El modelo activo se mantiene sin cambios."
+        X_tr, X_te, y_tr, y_te = train_test_split(
+            X_train, y_train, test_size=0.2, random_state=42, stratify=y_train
         )
+        clf = LogisticRegression(max_iter=200, random_state=42)
+        clf.fit(X_tr, y_tr)
+        X_eval, y_eval = X_te, y_te
+        eval_note = f"validación con {len(y_te)} muestras"
 
-    # 7. Registrar en historial
-    history.append({
+    y_pred = clf.predict(X_eval)
+    accuracy_new = float(accuracy_score(y_eval, y_pred))
+
+    f1_arr = f1_score(y_eval, y_pred, labels=ALL_LABELS, average=None, zero_division=0)
+    f1_new = {int(lbl): float(f1_arr[i]) for i, lbl in enumerate(ALL_LABELS)}
+
+    # 7) Decisión según policy
+    activate, reason = ActivationPolicy.decide(
+        policy=request.policy,
+        accuracy_new=accuracy_new,
+        accuracy_prev=previous_accuracy,
+        f1_new=f1_new,
+        f1_prev=previous_f1,
+        min_delta=request.min_delta,
+        target_class=request.target_class
+    )
+
+    # 8) Versionado
+    version = f"v{len(history) + 1}.0-{uuid.uuid4().hex[:6]}"
+
+    # 9) Guardar intento en historial (siempre)
+    entry = {
         "version": version,
         "trained_at": datetime.utcnow().isoformat() + "Z",
-        "accuracy": accuracy_new,
-        "n_training_samples": len(X_train),
+        "accuracy": round(accuracy_new, 4),
+        "f1_per_class": {str(k): round(v, 4) for k, v in f1_new.items()},
+        "n_training_samples": int(len(X_train)),
         "algorithm": "LogisticRegression",
         "source": source,
         "eval_note": eval_note,
-        "status": status,
-        "activated": model_updated
-    })
+        "policy": request.policy,
+        "policy_params": {
+            **({"min_delta": request.min_delta} if request.min_delta is not None else {}),
+            **({"target_class": request.target_class} if request.target_class is not None else {}),
+        },
+        "decision_reason": reason,
+        "activated": bool(activate),
+        "status": "activado" if activate else "rechazado"
+    }
+
+    history.append(entry)
     save_history(history)
 
+    # 10) Si activamos, persistimos el modelo activo y el dataset acumulado
+    if activate:
+        joblib.dump(clf, MODEL_PATH)
+        joblib.dump({"X": X_train, "y": y_train}, DATA_PATH)
+
+        message = f"Nuevo modelo activado. {reason}"
+        return TrainResponse(
+            status="activado",
+            model_version=version,
+            accuracy_new=round(accuracy_new, 4),
+            accuracy_previous=previous_accuracy,
+            model_updated=True,
+            message=message
+        )
+
+    message = f"Modelo NO activado. {reason}"
     return TrainResponse(
-        status=status,
+        status="rechazado",
         model_version=version,
-        accuracy_new=accuracy_new,
+        accuracy_new=round(accuracy_new, 4),
         accuracy_previous=previous_accuracy,
-        model_updated=model_updated,
+        model_updated=False,
         message=message
     )
 
 
 @app.get("/model/info", response_model=ModelInfo, tags=["Modelo"])
 def model_info():
-    """
-    Devuelve información del modelo activo y el historial completo de entrenamientos.
-    """
     history = load_history()
     if not history:
-        raise HTTPException(status_code=404, detail="No hay ningún modelo entrenado aún.")
+        raise HTTPException(status_code=404, detail="No hay historial de modelos.")
 
     active = history[-1]
-    # El modelo activo es el último con activated=True (o el primero si es bootstrap)
-    active_entries = [h for h in history if h.get("activated", True)]
-    active = active_entries[-1] if active_entries else history[-1]
-
     return ModelInfo(
         active_version=active["version"],
         trained_at=active["trained_at"],
         accuracy=active["accuracy"],
         n_training_samples=active["n_training_samples"],
-        algorithm=active["algorithm"],
+        algorithm=active.get("algorithm", "unknown"),
         history=history
     )
 
@@ -338,15 +447,16 @@ def model_info():
 @app.delete("/model/history", tags=["Modelo"])
 def reset_history():
     """
-    [CUIDADO] Elimina el historial y el modelo activo. Fuerza bootstrap en el próximo arranque.
-    Útil para pruebas y demostración.
+    Resetea historial y elimina ficheros de modelos para pruebas.
     """
-    if HISTORY_PATH.exists():
-        HISTORY_PATH.unlink()
+    # Borra artefactos si existen
     if MODEL_PATH.exists():
         MODEL_PATH.unlink()
-    data_file = MODELS_DIR / "accumulated_data.joblib"
-    if data_file.exists():
-        data_file.unlink()
+    if HISTORY_PATH.exists():
+        HISTORY_PATH.unlink()
+    if DATA_PATH.exists():
+        DATA_PATH.unlink()
+
+    # Rebootstrapping
     bootstrap_model()
-    return {"status": "ok", "message": "Historial eliminado y modelo base restaurado."}
+    return {"status": "ok", "message": "Historial eliminado. Modelo base restaurado."}
